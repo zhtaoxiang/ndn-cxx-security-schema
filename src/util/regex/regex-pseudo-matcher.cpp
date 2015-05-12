@@ -45,9 +45,8 @@ RegexPseudoMatcher::setMatchResult(const std::string& str)
 }
 
 void
-RegexPseudoMatcher::resetMatchResult()
+RegexPseudoMatcher::derivePattern(std::string& pattern)
 {
-  m_matchResult.clear();
 }
 
 } // namespace ndn

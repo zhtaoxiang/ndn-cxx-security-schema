@@ -42,7 +42,7 @@ public:
   setMatchResult(const std::string& str);
 
   void
-  resetMatchResult();
+  derivePattern(std::string& pattern) NDN_CXX_DECL_FINAL;
 };
 
 } // namespace ndn

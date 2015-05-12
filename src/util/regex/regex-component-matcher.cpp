@@ -64,7 +64,7 @@ RegexComponentMatcher::match(const Name& name, size_t offset, size_t len)
     if (boost::regex_match(targetStr, subResult, m_componentRegex)) {
       for (size_t i = 1;
            i <= m_componentRegex.mark_count() - BOOST_REGEXP_MARK_COUNT_CORRECTION; i++) {
-        m_pseudoMatchers[i]->resetMatchResult();
+        m_pseudoMatchers[i]->clearMatchResult();
         m_pseudoMatchers[i]->setMatchResult(subResult[i]);
       }
       m_matchResult.push_back(name.get(offset));
@@ -76,6 +76,20 @@ RegexComponentMatcher::match(const Name& name, size_t offset, size_t len)
   }
 
   return false;
+}
+
+void
+RegexComponentMatcher::derivePattern(std::string& pattern)
+{
+  if (m_matchResult.size() == 0)
+    pattern += "<" + m_expr + ">";
+  else {
+    pattern += "<";
+    for (const auto& result : m_matchResult) {
+      pattern += result.toUri();
+    }
+    pattern += ">";
+  }
 }
 
 void
