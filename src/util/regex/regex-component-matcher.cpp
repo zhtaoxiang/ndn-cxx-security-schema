@@ -86,12 +86,8 @@ RegexComponentMatcher::compile()
   m_pseudoMatchers.clear();
   m_pseudoMatchers.push_back(make_shared<RegexPseudoMatcher>());
 
-  for (size_t i = 1;
-       i <= m_componentRegex.mark_count() - BOOST_REGEXP_MARK_COUNT_CORRECTION; i++) {
-    auto pMatcher = make_shared<RegexPseudoMatcher>();
-    m_pseudoMatchers.push_back(pMatcher);
-    m_backrefManager->pushRef(static_pointer_cast<RegexMatcher>(pMatcher));
-  }
+  if (m_componentRegex.mark_count() - BOOST_REGEXP_MARK_COUNT_CORRECTION != 0)
+    throw Error("Does not allow sub groups inside wild card");
 }
 
 } // namespace ndn
