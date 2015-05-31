@@ -161,7 +161,59 @@ BOOST_FIXTURE_TEST_CASE(GenerateSigningNameList2, IdentityManagementFixture)
   boost::filesystem::remove(CERT_PATH);
 }
 
-BOOST_FIXTURE_TEST_CASE(HierarchicalTrustModel, IdentityManagementFixture)
+struct FacesFixture : public security::IdentityManagementTimeFixture
+{
+  FacesFixture()
+    : face1(util::makeDummyClientFace(io, {true, true}))
+    , face2(util::makeDummyClientFace(io, {true, true}))
+    , readInterestOffset1(0)
+    , readDataOffset1(0)
+    , readInterestOffset2(0)
+    , readDataOffset2(0)
+  {
+  }
+
+  bool
+  passPacket()
+  {
+    bool hasPassed = false;
+
+    checkFace(face1->sentInterests, readInterestOffset1, *face2, hasPassed);
+    checkFace(face1->sentDatas, readDataOffset1, *face2, hasPassed);
+    checkFace(face2->sentInterests, readInterestOffset2, *face1, hasPassed);
+    checkFace(face2->sentInterests, readDataOffset2, *face1, hasPassed);
+
+    return hasPassed;
+  }
+  template<typename Packet>
+  void
+  checkFace(std::vector<Packet>& receivedPackets,
+            size_t& readPacketOffset,
+            util::DummyClientFace& receiver,
+            bool& hasPassed)
+  {
+    while (receivedPackets.size() > readPacketOffset) {
+      receiver.receive(receivedPackets[readPacketOffset]);
+      readPacketOffset++;
+      hasPassed = true;
+    }
+  }
+
+  ~FacesFixture()
+  {
+  }
+
+public:
+  shared_ptr<util::DummyClientFace> face1;
+  shared_ptr<util::DummyClientFace> face2;
+
+  size_t readInterestOffset1;
+  size_t readDataOffset1;
+  size_t readInterestOffset2;
+  size_t readDataOffset2;
+};
+
+BOOST_FIXTURE_TEST_CASE(HierarchicalTrustModel, FacesFixture)
 {
   Name root("/TestValidatorSchema");
   BOOST_REQUIRE_NO_THROW(addIdentity(root));
@@ -213,7 +265,18 @@ BOOST_FIXTURE_TEST_CASE(HierarchicalTrustModel, IdentityManagementFixture)
     {
       BOOST_CHECK_MESSAGE(false, *it);
     }*/
-  
+
+  auto validator = make_shared<ValidatorSchema>(face2.get());
+  validator->load(CONFIG, CONFIG_PATH.native());
+
+  advanceClocks(time::milliseconds(2), 100);
+  validator->validate(*data1,
+    [] (const shared_ptr<const Data>&) { BOOST_CHECK(true); },
+    [] (const shared_ptr<const Data>&, const string&) { BOOST_CHECK(false); });
+
+  do {
+    advanceClocks(time::milliseconds(2), 10);
+  } while (passPacket());
 
   const boost::filesystem::path CERT_PATH =
     (boost::filesystem::current_path() / std::string("trust-anchor-1.cert"));
