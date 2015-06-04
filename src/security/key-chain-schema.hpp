@@ -51,9 +51,9 @@ public:
   {
   }
 
-  //template<typename T>
+  template<typename T>
   void
-  sign(Data& packet);
+  sign(T& packet);
 
   void
   load(const std::string& filename);
@@ -76,13 +76,11 @@ public:
 private:
 
   bool
-  deriveKeyChainNameList(const Name& packetName,
-                         size_t steps);
+  deriveKeyChainNameList(const Name& packetName);
 
   bool 
   generateKeyName(const std::string& ID,
-                       const std::string& pattern,
-                       size_t steps);
+                       const std::string& pattern);
 
   Name
   deriveIdentitiName(const std::string& certNamePattern);

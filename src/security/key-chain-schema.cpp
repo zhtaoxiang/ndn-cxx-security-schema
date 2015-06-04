@@ -39,11 +39,6 @@ KeyChainSchema::KeyChainSchema()
   : m_keyChain(make_shared<KeyChain>())
   , m_schemaInterpreter(make_shared<SchemaInterpreter>())
 {
-  /*ConfigFile config;
-  const ConfigFile::Parsed& parsed = config.getParsedConfiguration();
-  
-  std::string filename = parsed.get<std::string>("security schema", "");
-  load(filename);*/
 }
 
 KeyChainSchema::KeyChainSchema(const std::string& filename)
@@ -81,15 +76,14 @@ KeyChainSchema::load(std::istream& input, const std::string& filename)
   m_schemaInterpreter->load(input, filename);
 }
 
-//template<typename T>
+template<typename T>
 void
-KeyChainSchema::sign(Data& packet)
+KeyChainSchema::sign(T& packet)
 {
-  size_t steps = 10; //TODO: change this value
   m_keyChainNameList.clear();
-  if (!deriveKeyChainNameList(packet.getName(), steps))
+  if (!deriveKeyChainNameList(packet.getName()))
     {
-      //onSignFailed(); //TODO: to specify this part.
+      throw Error("Sign failed. Cannot generate key chain");
       return;
     }
 
@@ -110,35 +104,32 @@ KeyChainSchema::sign(Data& packet)
   Name identityName, keyName;
   std::string certNamePattern;
   shared_ptr<IdentityCertificate> certificate;
-  bool ksk = true;
+  bool isKsk = true;
 
   for (++ rit; rit != m_keyChainNameList.rend(); ++rit)
     {
       certNamePattern = *rit;
       identityName = deriveIdentitiName(certNamePattern);
-      //fillRandom(*rit);
-      //identityName = Name(patternToUri(identityNameStr));
 
-
-      ksk = rit + 1 == m_keyChainNameList.rend() ? false : true;
+      isKsk = rit + 1 == m_keyChainNameList.rend() ? false : true;
       if (signPolicy.find(tlv::SignatureSha256WithRsa) != signPolicy.end())
         {
-          keyName = m_keyChain->generateRsaKeyPairAsDefault(identityName, ksk, 
+          keyName = m_keyChain->generateRsaKeyPairAsDefault(identityName, isKsk, 
           	sigReq.getKeySize());
         }
       else if (signPolicy.find(tlv::SignatureSha256WithEcdsa) != signPolicy.end())
         {
-      	  keyName = m_keyChain->generateEcdsaKeyPairAsDefault(identityName, ksk,
+      	  keyName = m_keyChain->generateEcdsaKeyPairAsDefault(identityName, isKsk,
       	  	sigReq.getKeySize());
         }
       else if (signPolicy.find(tlv::DigestSha256) != signPolicy.end())
         {
-          //onSignFailed();
+          throw Error("Current schema does not support pure sha-256 signature type.");
           return;
         }
       else
         {
-          //onSignFailed();
+          throw Error("Current schema does not support the signature type you provide.");
           return;
         }
       certificate =
@@ -147,26 +138,25 @@ KeyChainSchema::sign(Data& packet)
                                                     notBefore, 
                                                     notAfter,
                                                     subjectDescription);
-      //std::cout<<"before sign"<<std::endl;
       m_keyChain->sign(*certificate, signerCertName);
-      //std::cout<<"after sign" <<std::endl;
       m_keyChain->addCertificateAsIdentityDefault(*certificate);
       signerCertName = certificate->getName();
-      //Name signerPulicKeyName = IdentityCertificate::certificateNameToPublicKeyName(signerCertName);
-      //Name signerIdentityName = signerPulicKeyName.getSubName(signerPulicKeyName.size() - 2);
     }
-    //std::cout<<"out before sign"<<std::endl;
     m_keyChain->sign(packet, signerCertName);
-    //std::cout<<"out after sign" <<std::endl;
 }
 
+template void
+KeyChainSchema::sign(ndn::Data& packet);
+
+template void
+KeyChainSchema::sign(ndn::Interest& packet);
+
 bool
-KeyChainSchema::deriveKeyChainNameList(const Name& packetName, size_t steps)
+KeyChainSchema::deriveKeyChainNameList(const Name& packetName)
 {
   std::vector<std::pair<std::string, std::string>> patterns 
-      = m_schemaInterpreter->derivePatternFromDataName(packetName);
+      = m_schemaInterpreter->deriveSignerPatternFromName(packetName);
 
-  //m_keyChainNameList.push_back(packetName.toUri());
   for (std::vector<std::pair<std::string, std::string>>::iterator it = patterns.begin();
        it != patterns.end(); ++it)
     {
@@ -177,25 +167,18 @@ KeyChainSchema::deriveKeyChainNameList(const Name& packetName, size_t steps)
           return true;
         }
 
-      if (generateKeyName(it->first, it->second, steps - 1))
+      if (generateKeyName(it->first, it->second))
         {
           return true;
         }
     }
-  //m_keyChainNameList.pop_back();
   return false;
 }
 
 bool
 KeyChainSchema::generateKeyName(const std::string& ID,
-                                     const std::string& pattern,
-                                     size_t steps)
+                                const std::string& pattern)
 {
-  if (steps == 0)
-    {
-      return false;
-    }
-
   std::vector<std::pair<std::string, std::string>> patterns 
       = m_schemaInterpreter->derivePatternFromRuleId(ID);
   for (std::vector<std::pair<std::string, std::string>>::iterator it = patterns.begin();
@@ -224,10 +207,9 @@ KeyChainSchema::generateKeyName(const std::string& ID,
         continue;
       
       m_keyChainNameList.push_back(std::get<1>(*it));
-      if (generateKeyName(it->first, it->second, steps - 1))
+      if (generateKeyName(it->first, it->second))
         {
-      	  //shared_ptr<const Name> packetName = m_schemaInterpreter->deriveNameByPattern(); 
-          return true;
+      	  return true;
         }
       m_keyChainNameList.pop_back();
     }
@@ -245,42 +227,27 @@ KeyChainSchema::deriveIdentitiName(const std::string& certNamePattern)
     }
   std::string beforeKeyComponent = certNamePattern.substr(0, pos);
   std::string afterKeyComponent = certNamePattern.substr(pos + 5);
+  std::string beforeSKComponent = "";
   if ((pos = afterKeyComponent.find("<ksk")) != std::string::npos
     || (pos = afterKeyComponent.find("<dsk")) != std::string::npos)
     {
       std::string beforeSKComponent = afterKeyComponent.substr(0, pos);
-      std::string resultPattern = fillRandom(beforeKeyComponent);
-      resultPattern = resultPattern.append(fillRandom(beforeSKComponent));
-      result = Name(patternToUri(resultPattern));
-      return result;
     }
   else if ((pos = afterKeyComponent.find("<ID-CERT>")) != std::string::npos)
     {
       pos = afterKeyComponent.rfind("<", pos - 1);
       std::string beforeSKComponent = afterKeyComponent.substr(0, pos);
-      std::string resultPattern = fillRandom(beforeKeyComponent);
-      resultPattern = resultPattern.append(fillRandom(beforeSKComponent));
-      result = Name(patternToUri(resultPattern));
-      return result;
     }
   else if ((pos = afterKeyComponent.rfind("<><><>")) == afterKeyComponent.size() - 6)
     {
       std::string beforeSKComponent = afterKeyComponent.substr(0, pos);
-      std::string resultPattern = fillRandom(beforeKeyComponent);
-      resultPattern = resultPattern.append(fillRandom(beforeSKComponent));
-      result = Name(patternToUri(resultPattern));
-      return result;
     } 
   else if ((pos = afterKeyComponent.rfind("<>*")) != std::string::npos)
     {
       std::string beforeSKComponent = afterKeyComponent.substr(0, pos);
-      std::string resultPattern = fillRandom(beforeKeyComponent);
-      resultPattern = resultPattern.append(fillRandom(beforeSKComponent));
-      result = Name(patternToUri(resultPattern));
-      return result;
     }
-  // TODO: This logic has some problems
   std::string resultPattern = fillRandom(beforeKeyComponent);
+  resultPattern = resultPattern.append(fillRandom(beforeSKComponent));
   result = Name(patternToUri(resultPattern));
   return result;
 }
@@ -292,7 +259,7 @@ KeyChainSchema::fillRandom(const std::string& patternWithRand)
   size_t pos = 0;
   while ((pos = result.find("<>*")) != std::string::npos)
     {
-      result = result.replace(pos, 3, generateRandStr());
+      result = result.replace(pos, 3, "");
     }
   while ((pos = result.find("<>")) != std::string::npos)
     {

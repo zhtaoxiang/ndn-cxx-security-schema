@@ -40,7 +40,7 @@ namespace tests {
 
 BOOST_AUTO_TEST_SUITE(SecurityKeyChainSchema)
 
-BOOST_FIXTURE_TEST_CASE(GenerateSigningNameList, IdentityManagementFixture)
+BOOST_FIXTURE_TEST_CASE(SignDataUsingShema, IdentityManagementFixture)
 {
   Name identity("/ndn/edu/ucla/haitao/config/key");
   identity.appendVersion();
@@ -100,7 +100,7 @@ BOOST_FIXTURE_TEST_CASE(GenerateSigningNameList, IdentityManagementFixture)
   boost::filesystem::remove(CERT_PATH);
 }
 
-BOOST_FIXTURE_TEST_CASE(GenerateSigningNameList2, IdentityManagementFixture)
+BOOST_FIXTURE_TEST_CASE(SignDataUsingSchema2, IdentityManagementFixture)
 {
   Name identity("/ndn/edu/ucla/haitao/config/key");
   identity.appendVersion();
@@ -142,11 +142,6 @@ BOOST_FIXTURE_TEST_CASE(GenerateSigningNameList2, IdentityManagementFixture)
   std::vector<std::string> namelist = keychain.getKeyChainNameList();
 
   BOOST_CHECK_EQUAL(namelist.size(), 1);
-  /*for (std::vector<std::string>::iterator it = namelist.begin();
-  	it != namelist.end(); ++it)
-    {
-      BOOST_CHECK_MESSAGE(false, *it);
-    }*/
   
   Face face;
   ValidatorSchema validator(face);
@@ -155,6 +150,59 @@ BOOST_FIXTURE_TEST_CASE(GenerateSigningNameList2, IdentityManagementFixture)
     [] (const shared_ptr<const Data>&) { BOOST_CHECK(true); },
     [] (const shared_ptr<const Data>&, const string&) { BOOST_CHECK(false); });
 
+
+  const boost::filesystem::path CERT_PATH =
+    (boost::filesystem::current_path() / std::string("trust-anchor-1.cert"));
+  boost::filesystem::remove(CERT_PATH);
+}
+
+BOOST_FIXTURE_TEST_CASE(SignInterestUsingSchema, IdentityManagementFixture)
+{
+  Name identity("/ndn/edu/ucla/qiuhan/config/key");
+  identity.appendVersion();
+  BOOST_REQUIRE_NO_THROW(addIdentity(identity));
+  Name certName = m_keyChain.getDefaultCertificateNameForIdentity(identity);
+  shared_ptr<IdentityCertificate> idCert = m_keyChain.getCertificate(certName);
+  io::save(*idCert, "trust-anchor-1.cert");
+
+  Name interestName("/ndn/edu/ucla/qiuhan/cs/bh");
+  shared_ptr<Interest> interest = make_shared<Interest>(interestName);
+
+  std::string SCHEMA =
+    "interest-rule\n"
+    "{\n"
+    "  id \"pkt\"\n"
+    "  name (<>*)<ucla>(<>)<cs><><>*\n"
+    "  signer k1($1,$2)\n"
+    "}\n"
+    "anchor\n"
+    "{\n"
+    "  id \"k1\"\n"
+    "  name (<>*)<ucla>(<>)<config><key><>*\n"
+    "  file \"trust-anchor-1.cert\"\n"
+    "}\n"
+    "sig-req\n"
+    "{\n"
+    "  hash sha-256\n"
+    "  signing rsa|ecdsa\n"
+    "  key-size 112\n"
+    "}\n";
+
+  const boost::filesystem::path CONFIG_PATH =
+    (boost::filesystem::current_path() / std::string("unit-test-nfd.conf"));
+
+  KeyChainSchema keychain;
+  keychain.load(SCHEMA, CONFIG_PATH.native());
+
+  keychain.sign(*interest);
+  std::vector<std::string> namelist = keychain.getKeyChainNameList();
+
+  Face face;
+  ValidatorSchema validator(face);
+  validator.load(SCHEMA, CONFIG_PATH.native());
+  validator.validate(*interest,
+                     [] (const shared_ptr<const Interest>&) { BOOST_CHECK(true); },
+                     [] (const shared_ptr<const Interest>&, const string&) { BOOST_CHECK(false); });
 
   const boost::filesystem::path CERT_PATH =
     (boost::filesystem::current_path() / std::string("trust-anchor-1.cert"));
@@ -260,11 +308,6 @@ BOOST_FIXTURE_TEST_CASE(HierarchicalTrustModel, FacesFixture)
   std::vector<std::string> namelist = keychain.getKeyChainNameList();
 
   BOOST_CHECK_EQUAL(namelist.size(), 2);
-  /*for (std::vector<std::string>::iterator it = namelist.begin();
-    it != namelist.end(); ++it)
-    {
-      BOOST_CHECK_MESSAGE(false, *it);
-    }*/
 
   auto validator = make_shared<ValidatorSchema>(face2.get());
   validator->load(CONFIG, CONFIG_PATH.native());
